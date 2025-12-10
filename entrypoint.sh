@@ -4,10 +4,18 @@ set -e
 # Download and install todo-tree
 echo "Installing todo-tree..."
 curl -fsSL https://github.com/alexandretrotel/todo-tree/releases/latest/download/todo-tree-x86_64-unknown-linux-gnu.tar.gz | tar xz
-chmod +x todo-tree
+
+# Find the extracted binary
+BINARY=$(find . -type f -name 'todo-tree' -perm /111 | head -n 1)
+if [ -z "$BINARY" ]; then
+  echo "Error: todo-tree binary not found after extraction!"
+  exit 1
+fi
+
+chmod +x "$BINARY"
 
 # Build the command
-CMD="./todo-tree --format json"
+CMD="$BINARY --format json"
 
 # Add path if specified
 if [ -n "$INPUT_PATH" ]; then
