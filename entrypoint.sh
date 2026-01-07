@@ -76,14 +76,13 @@ scan_todos() {
 
         if [ -z "$changed_files" ]; then
             log_info "No changed files to scan"
-            echo '{"files":[],"summary":{"total":0,"by_tag":{},"by_priority":{}}}' > todos.json
+            echo '{"files":[],"summary":{"total_count":0,"files_with_todos":0,"files_scanned":0,"tag_counts":{}}}' > todos.json
             return 0
         fi
 
         log_info "Changed files: $changed_files"
 
         # Scan each changed file individually and merge results
-        local all_results='{"files":[],"summary":{"total":0,"by_tag":{},"by_priority":{}}}'
         local total_todos=0
         local files_json="[]"
 
@@ -93,29 +92,6 @@ scan_todos() {
                 local result
                 result=$($cmd "$file" 2>/dev/null || echo '{"files":[],"summary":{"total_count":0}}')
 
-                # Transform the result to match expected format
-                result=$(echo "$result" | jq '{
-                    files: [
-                        .files[] | {
-                            path: .path,
-                            todos: [
-                                .items[] | {
-                                    tag: .tag,
-                                    text: .message,
-                                    line: .line,
-                                    column: .column,
-                                    line_content: .line_content,
-                                    priority: .priority
-                                }
-                            ]
-                        }
-                    ],
-                    summary: {
-                        total: .summary.total_count,
-                        by_tag: .summary.tag_counts
-                    }
-                }')
-
                 # Extract files array and merge
                 local file_todos
                 file_todos=$(echo "$result" | jq -r '.files // []')
@@ -123,45 +99,17 @@ scan_todos() {
 
                 # Count totals
                 local file_total
-                file_total=$(echo "$result" | jq -r '.summary.total // 0')
+                file_total=$(echo "$result" | jq -r '.summary.total_count // 0')
                 total_todos=$((total_todos + file_total))
             fi
         done
 
-        # Build final result
-        echo "{\"files\":$files_json,\"summary\":{\"total\":$total_todos}}" | jq '.' > todos.json
+        # Build final result using binary format
+        echo "{\"files\":$files_json,\"summary\":{\"total_count\":$total_todos}}" | jq '.' > todos.json
     else
-        # Scan entire path
+        # Scan entire path - binary output format is used directly
         log_info "Scanning path: ${scan_path:-.}"
-        $cmd "${scan_path:-.}" > todos_raw.json 2>/dev/null || echo '{"files":[],"summary":{"total":0}}' > todos_raw.json
-        
-        # Transform the JSON to match expected format
-        # Binary returns: .summary.total_count, .files[].items, .items[].message
-        # Script expects: .summary.total, .files[].todos, .todos[].text
-        jq '{
-            files: [
-                .files[] | {
-                    path: .path,
-                    todos: [
-                        .items[] | {
-                            tag: .tag,
-                            text: .message,
-                            line: .line,
-                            column: .column,
-                            line_content: .line_content,
-                            priority: .priority
-                        }
-                    ]
-                }
-            ],
-            summary: {
-                total: .summary.total_count,
-                by_tag: .summary.tag_counts,
-                files_with_todos: .summary.files_with_todos
-            }
-        }' todos_raw.json > todos.json 2>/dev/null || echo '{"files":[],"summary":{"total":0}}' > todos.json
-        
-        rm -f todos_raw.json
+        $cmd "${scan_path:-.}" > todos.json 2>/dev/null || echo '{"files":[],"summary":{"total_count":0,"files_with_todos":0,"files_scanned":0,"tag_counts":{}}}' > todos.json
     fi
 
     log_success "Scan complete"
@@ -183,32 +131,7 @@ find_new_todos() {
         return 0
     }
 
-    ./todo-tree scan --json . > todos_base_raw.json 2>/dev/null || echo '{"files":[],"summary":{"total_count":0}}' > todos_base_raw.json
-    
-    # Transform base JSON to match expected format
-    jq '{
-        files: [
-            .files[] | {
-                path: .path,
-                todos: [
-                    .items[] | {
-                        tag: .tag,
-                        text: .message,
-                        line: .line,
-                        column: .column,
-                        line_content: .line_content,
-                        priority: .priority
-                    }
-                ]
-            }
-        ],
-        summary: {
-            total: .summary.total_count,
-            by_tag: .summary.tag_counts
-        }
-    }' todos_base_raw.json > todos_base.json 2>/dev/null || echo '{"files":[],"summary":{"total":0}}' > todos_base.json
-    
-    rm -f todos_base_raw.json
+    ./todo-tree scan --json . > todos_base.json 2>/dev/null || echo '{"files":[],"summary":{"total_count":0}}' > todos_base.json
 
     # Return to head
     git checkout - --quiet 2>/dev/null || true
@@ -217,15 +140,16 @@ find_new_todos() {
 
     # Compare and find new TODOs using jq
     # A TODO is "new" if it doesn't exist in the base branch at the same file:line
+    # Using binary format: .files[].items instead of .files[].todos
     jq -s '
         (.[1].files // []) as $base_files |
-        (.[1].files // [] | [.[] | .todos[] | {key: "\(.path):\(.line)", value: .}] | from_entries) as $base_lookup |
+        (.[1].files // [] | [.[] | .items[] | {key: "\(.path):\(.line)", value: .}] | from_entries) as $base_lookup |
         .[0] | .files = [
             .files[] |
-            .todos = [.todos[] | select($base_lookup["\(.path // empty):\(.line)"] == null)] |
-            select(.todos | length > 0)
+            .items = [.items[] | select($base_lookup["\(.path // empty):\(.line)"] == null)] |
+            select(.items | length > 0)
         ] |
-        .summary.total = ([.files[].todos | length] | add // 0) |
+        .summary.total_count = ([.files[].items | length] | add // 0) |
         .summary.new_only = true
     ' todos.json todos_base.json > todos_new.json 2>/dev/null || cp todos.json todos_new.json
 
@@ -239,11 +163,12 @@ generate_annotations() {
     log_info "Generating GitHub annotations..."
 
     # Read todos and generate annotation commands
+    # Using binary format: .files[].items and .message
     jq -r --argjson max "$max_annotations" '
         .files[]? |
         .path as $path |
-        .todos[:$max][] |
-        "::warning file=\($path),line=\(.line)::\(.tag): \(.text)"
+        .items[:$max][] |
+        "::warning file=\($path),line=\(.line)::\(.tag): \(.message)"
     ' todos.json 2>/dev/null | head -n "$max_annotations"
 }
 
@@ -252,11 +177,13 @@ check_fail_conditions() {
     local fail_on_fixme="$2"
     local max_todos="$3"
 
+    # Using binary format: .summary.total_count
     local total
-    total=$(jq -r '.summary.total // 0' todos.json)
+    total=$(jq -r '.summary.total_count // 0' todos.json)
 
+    # Using binary format: .files[].items
     local fixme_count
-    fixme_count=$(jq -r '[.files[]?.todos[]? | select(.tag == "FIXME" or .tag == "BUG")] | length' todos.json 2>/dev/null || echo "0")
+    fixme_count=$(jq -r '[.files[]?.items[]? | select(.tag == "FIXME" or .tag == "BUG")] | length' todos.json 2>/dev/null || echo "0")
 
     # Check fail conditions
     if [ "$fail_on_todos" = "true" ] && [ "$total" -gt 0 ]; then
@@ -278,8 +205,9 @@ check_fail_conditions() {
 }
 
 set_outputs() {
+    # Using binary format: .summary.total_count
     local total
-    total=$(jq -r '.summary.total // 0' todos.json)
+    total=$(jq -r '.summary.total_count // 0' todos.json)
 
     local files_count
     files_count=$(jq -r '.files | length' todos.json 2>/dev/null || echo "0")
