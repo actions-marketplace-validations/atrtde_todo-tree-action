@@ -160,6 +160,9 @@ main() {
     test_archive_structures
     echo ""
 
+    test_entrypoint
+    echo ""
+
     log_info "All tests completed!"
 }
 
