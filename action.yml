@@ -16,9 +16,9 @@ inputs:
     required: false
     default: "."
   tags:
-    description: "Comma-separated tags to search for (e.g., TODO,F IXME,BUG,HACK)"
+    description: "Comma-separated tags to search for (e.g., TODO,FIXME,BUG,HACK)"
     required: false
-    default: ""
+    default: "TODO,FIXME,BUG"
   include-patterns:
     description: "Comma-separated file patterns to include (e.g., *.rs,*.ts)"
     required: false
