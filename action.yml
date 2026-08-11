@@ -18,7 +18,7 @@ inputs:
   tags:
     description: "Comma-separated tags to search for (e.g., TODO,FIXME,BUG,HACK)"
     required: false
-    default: "TODO,FIXME,BUG"
+    default: "TODO,WIP,MAYBE,FIXME,BUG,ERROR,HACK,WARN,WARNING,FIX,NOTE,XXX,INFO,DOCS,PERF,TEST,IDEA"
   include-patterns:
     description: "Comma-separated file patterns to include (e.g., *.rs,*.ts)"
     required: false
@@ -32,7 +32,7 @@ inputs:
     required: false
     default: "false"
   new-only:
-    description: "Only show NEW TODOs (not present in base branch)"
+    description: "Only show new TODOs (not present in base branch)"
     required: false
     default: "false"
   fail-on-todos:
@@ -59,10 +59,6 @@ inputs:
     description: "Post a summary comment on the PR"
     required: false
     default: "true"
-  comment-header:
-    description: "Custom header for the PR comment"
-    required: false
-    default: "## Todo Tree Summary"
 
 outputs:
   total:
@@ -114,7 +110,7 @@ runs:
             return;
           }
 
-          const header = '${{ inputs.comment-header }}';
+          const header = '## Todo Tree Summary';
           const changedOnly = '${{ inputs.changed-only }}' === 'true';
           const newOnly = '${{ inputs.new-only }}' === 'true';
 

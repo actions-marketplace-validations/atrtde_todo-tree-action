@@ -4,7 +4,7 @@ GitHub Action that scans pull requests for TODO-style comments and posts a summa
 
 ## Features
 
-- Finds `TODO`, `FIXME`, `BUG`, and custom tags
+- Finds `TODO`, `FIXME`, `BUG`, and 14 other built-in tags, plus custom ones
 - Can scan only changed files in the PR
 - Can show only TODOs newly introduced in the PR
 - Adds GitHub annotations on matching lines
@@ -35,7 +35,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: alexandretrotel/todo-tree-action@v1.0.3
+      - uses: alexandretrotel/todo-tree-action@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -43,7 +43,7 @@ jobs:
 ## Common Options
 
 ```yaml
-- uses: alexandretrotel/todo-tree-action@v1.0.3
+- uses: alexandretrotel/todo-tree-action@v1
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
     changed-only: true
@@ -58,7 +58,7 @@ jobs:
 |-------|---------|-------|
 | `github-token` | `${{ github.token }}` | Token for PR comments |
 | `path` | `.` | Root path to scan |
-| `tags` | `TODO,FIXME,BUG` | Comma-separated tags |
+| `tags` | `TODO,WIP,MAYBE,FIXME,BUG,ERROR,HACK,WARN,WARNING,FIX,NOTE,XXX,INFO,DOCS,PERF,TEST,IDEA` | Comma-separated tags |
 | `include-patterns` | _(empty)_ | Include glob list |
 | `exclude-patterns` | _(empty)_ | Exclude glob list |
 | `changed-only` | `false` | Scan only changed files |
@@ -69,7 +69,6 @@ jobs:
 | `show-annotations` | `true` | Create GitHub annotations |
 | `max-annotations` | `50` | GitHub limit is 50 |
 | `post-comment` | `true` | Post/update PR comment |
-| `comment-header` | `## TODO Summary` | Header text for PR comment |
 
 ## Outputs
 
