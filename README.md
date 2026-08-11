@@ -9,7 +9,7 @@ GitHub Action that scans pull requests for TODO-style comments and posts a summa
 - Can show only TODOs newly introduced in the PR
 - Adds GitHub annotations on matching lines
 - Can fail the workflow based on rules (`fail-on-todos`, `fail-on-fixme`, `max-todos`)
-- Updates the same PR comment on later runs
+- Posts a new PR comment on every run
 - Supports Linux and macOS (x86_64 and arm64)
 
 ## Quick Start
@@ -68,7 +68,7 @@ jobs:
 | `max-todos` | _(empty)_ | Fail if count exceeds this value |
 | `show-annotations` | `true` | Create GitHub annotations |
 | `max-annotations` | `50` | GitHub limit is 50 |
-| `post-comment` | `true` | Post/update PR comment |
+| `post-comment` | `true` | Post a new PR comment each run |
 
 ## Outputs
 
@@ -79,11 +79,26 @@ jobs:
 
 ## Comment Format
 
-PR details use text priority labels, for example:
+The PR comment groups items in a single table, sorted by priority, with an alert banner and clickable file links:
 
-```text
-- [High] TODO (L42): Implement error handling
-- [Medium] FIXME (L87): Remove temporary workaround
+```markdown
+## Todo Tree Summary
+
+> [!WARNING]
+> Found **12** TODO(s) across **5** file(s) — **2 Critical**
+
+<details>
+<summary>View all 12</summary>
+
+| Priority | Tag | Location | Message |
+|---|---|---|---|
+| 🔴 Critical | `FIXME` | [`src/auth.rs:42`](https://github.com/owner/repo/blob/sha/src/auth.rs#L42) | Handle token refresh |
+| 🟠 High | `HACK` | [`src/db.rs:88`](https://github.com/owner/repo/blob/sha/src/db.rs#L88) | Replace with proper migration |
+| 🟡 Medium | `TODO` | [`src/api.rs:15`](https://github.com/owner/repo/blob/sha/src/api.rs#L15) | Implement error handling |
+
+</details>
+
+<sub>Last updated 2026-08-11T00:00:00.000Z · [todo-tree](https://github.com/alexandretrotel/todo-tree)</sub>
 ```
 
 ## Requirements
