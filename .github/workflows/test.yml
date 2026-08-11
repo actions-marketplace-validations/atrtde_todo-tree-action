@@ -2,6 +2,8 @@ name: Test Action
 
 on:
   push:
+    branches:
+        - main
   pull_request:
   workflow_dispatch:
 
@@ -131,6 +133,85 @@ jobs:
           fi
 
           echo "✓ All outputs are correct"
+
+  test-action-comment-render:
+    name: Test PR Comment Render
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create test files across priorities
+        run: |
+          mkdir -p test-workspace
+          cat > test-workspace/auth.rs << 'EOF'
+          // FIXME: Handle token refresh
+          // BUG: Race condition on retry
+          EOF
+
+          cat > test-workspace/db.rs << 'EOF'
+          // HACK: Replace with proper migration
+          // WARN: Pool size not configurable
+          EOF
+
+          cat > test-workspace/api.rs << 'EOF'
+          // TODO: Implement error handling
+          // WIP: Pagination support
+          EOF
+
+          cat > test-workspace/notes.rs << 'EOF'
+          // NOTE: Document retry policy
+          // IDEA: Cache responses
+          EOF
+
+      - name: Run action (post comment)
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: test-workspace
+          post-comment: true
+
+  test-action-annotations:
+    name: Test GitHub Annotations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Run action (with annotations)
+        id: scan
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: fixtures
+          tags: TODO,FIXME
+          show-annotations: true
+          max-annotations: 10
+          post-comment: false
+          fail-on-todos: false
+
+      - name: Verify annotation commands were emitted
+        run: |
+          source src/logging.sh
+          source src/annotations.sh
+          generate_annotations 10 > annotations.log
+
+          if ! grep -q "::warning file=.*sample.rs,line=1::TODO: First fixture todo" annotations.log; then
+            echo "Missing expected TODO annotation"
+            exit 1
+          fi
+
+          if ! grep -q "::warning file=.*sample.rs,line=3::FIXME: Second fixture fixme" annotations.log; then
+            echo "Missing expected FIXME annotation"
+            exit 1
+          fi
+
+          echo "✓ Annotations generated correctly"
 
   test-architecture-detection:
     name: Test on ${{ matrix.arch }}
