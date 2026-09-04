@@ -3,7 +3,7 @@
 get_changed_files() {
     local base_ref="$1"
     local head_ref="$2"
-    local file_patterns="$3"
+    local include_patterns="$3"
 
     log_info "Fetching changed files between $base_ref and $head_ref..."
 
@@ -14,9 +14,9 @@ get_changed_files() {
                     git diff --name-only --diff-filter=ACMRT "origin/$base_ref" 2>/dev/null || \
                     echo "")
 
-    if [ -n "$file_patterns" ]; then
+    if [ -n "$include_patterns" ]; then
         local filtered_files=""
-        IFS=',' read -ra PATTERNS <<< "$file_patterns"
+        IFS=',' read -ra PATTERNS <<< "$include_patterns"
         for file in $changed_files; do
             for pattern in "${PATTERNS[@]}"; do
                 pattern=$(echo "${pattern}" | xargs)
@@ -37,20 +37,23 @@ find_new_todos() {
 
     log_info "Comparing TODOs with base branch ($base_ref) to find new ones..."
 
-    cp todos.json todos_current.json
+    local todo_binary
+    todo_binary="$(pwd)/todo-tree"
+    [ -f "$(pwd)/todo-tree.exe" ] && todo_binary="$(pwd)/todo-tree.exe"
 
-    git stash push -m "todo-tree-action" 2>/dev/null || true
-    if ! git checkout "origin/$base_ref" --quiet 2>/dev/null; then
-        log_warning "Could not checkout base branch, showing all TODOs"
-        mv todos_current.json todos.json
+    local worktree_dir
+    worktree_dir=$(mktemp -d)
+    rmdir "$worktree_dir"
+
+    if ! git worktree add --quiet --detach "$worktree_dir" "origin/$base_ref" 2>/dev/null; then
+        log_warning "Could not check out base branch, showing all TODOs"
+        rm -rf "$worktree_dir"
         return 0
     fi
 
-    ./todo-tree scan --json . > todos_base.json 2>/dev/null || echo '{"files":[],"summary":{"total_count":0}}' > todos_base.json
+    (cd "$worktree_dir" && "$todo_binary" scan --json .) > todos_base.json 2>/dev/null || echo '{"files":[],"summary":{"total_count":0}}' > todos_base.json
 
-    git checkout - --quiet 2>/dev/null || true
-    git stash pop --quiet 2>/dev/null || true
-    mv todos_current.json todos.json
+    git worktree remove --force "$worktree_dir" 2>/dev/null || rm -rf "$worktree_dir"
 
     jq -s '
         (.[1].files // []) as $base_files |

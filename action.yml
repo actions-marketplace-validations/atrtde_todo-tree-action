@@ -18,7 +18,7 @@ inputs:
   tags:
     description: "Comma-separated tags to search for (e.g., TODO,FIXME,BUG,HACK)"
     required: false
-    default: "TODO,FIXME,BUG"
+    default: "TODO,WIP,MAYBE,FIXME,BUG,ERROR,HACK,WARN,WARNING,FIX,NOTE,XXX,INFO,DOCS,PERF,TEST,IDEA"
   include-patterns:
     description: "Comma-separated file patterns to include (e.g., *.rs,*.ts)"
     required: false
@@ -32,7 +32,7 @@ inputs:
     required: false
     default: "false"
   new-only:
-    description: "Only show NEW TODOs (not present in base branch)"
+    description: "Only show new TODOs (not present in base branch)"
     required: false
     default: "false"
   fail-on-todos:
@@ -59,10 +59,10 @@ inputs:
     description: "Post a summary comment on the PR"
     required: false
     default: "true"
-  comment-header:
-    description: "Custom header for the PR comment"
+  update-comment:
+    description: "Update existing summary comment instead of posting new one each run"
     required: false
-    default: "## Todo Tree Summary"
+    default: "true"
 
 outputs:
   total:
@@ -114,80 +114,94 @@ runs:
             return;
           }
 
-          const header = '${{ inputs.comment-header }}';
+          const marker = '<!-- todo-tree-action -->';
+          const header = '## Todo Tree Summary';
           const changedOnly = '${{ inputs.changed-only }}' === 'true';
           const newOnly = '${{ inputs.new-only }}' === 'true';
+          const sha = context.payload.pull_request?.head?.sha || context.sha;
+
+          const priorityOrder = ['Critical', 'High', 'Medium', 'Low'];
+          const priorityEmoji = {
+            Critical: '🔴',
+            High: '🟠',
+            Medium: '🟡',
+            Low: '🟢',
+          };
 
           let body = `${header}\n\n`;
-          if (newOnly) {
-            body += '> Showing only **new** TODOs introduced in this PR\n\n';
-          } else if (changedOnly) {
-            body += '> Showing TODOs in **changed files** only\n\n';
-          }
 
           const total = todos.summary?.total_count || 0;
           const files = todos.files || [];
 
           if (files.length > 0 && total > 0) {
-            body += `Found **${total}** TODO(s) in **${files.length}** file(s):\n\n`;
-
-            const byTag = {};
+            const items = [];
             for (const file of files) {
               for (const item of (file.items || [])) {
-                if (!byTag[item.tag]) byTag[item.tag] = [];
-                byTag[item.tag].push({ ...item, path: file.path });
+                items.push({ ...item, path: file.path, priority: item.priority || 'Medium' });
               }
             }
+            items.sort((a, b) => priorityOrder.indexOf(a.priority) - priorityOrder.indexOf(b.priority));
 
-            body += '<details>\n<summary>Summary by tag</summary>\n\n';
-            body += '| Tag | Count |\n|-----|-------|\n';
-            for (const [tag, items] of Object.entries(byTag)) {
-              body += `| ${tag} | ${items.length} |\n`;
-            }
-            body += '\n</details>\n\n';
+            const criticalCount = items.filter(i => i.priority === 'Critical').length;
+            const scopeNote = newOnly
+              ? ' (new in this PR)'
+              : changedOnly
+                ? ' (changed files only)'
+                : '';
 
-            body += '<details open>\n<summary>Details by file</summary>\n\n';
-            for (const file of files) {
-              if (file.items && file.items.length > 0) {
-                body += `#### \`${file.path}\`\n`;
-                for (const item of file.items) {
-                  const priority = item.priority || 'Medium';
-                  body += `- [${priority}] **${item.tag}** (L${item.line}): ${item.message}\n`;
-                }
-                body += '\n';
-              }
+            body += `> [!WARNING]\n> Found **${total}** TODO(s) across **${files.length}** file(s)${scopeNote}`;
+            body += criticalCount > 0 ? ` — **${criticalCount} Critical**\n\n` : '\n\n';
+
+            body += '### Details\n\n';
+            body += '| Priority | Tag | Location | Message |\n|---|---|---|---|\n';
+            for (const item of items) {
+              const emoji = priorityEmoji[item.priority] || '⚪';
+              const link = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${sha}/${item.path}#L${item.line}`;
+              body += `| ${emoji} ${item.priority} | \`${item.tag}\` | [\`${item.path}:${item.line}\`](${link}) | ${item.message} |\n`;
             }
-            body += '</details>\n';
+            body += '\n';
           } else {
             body += 'No TODOs found!\n';
           }
 
-          body += `\n---\n<sub>Last updated: ${new Date().toISOString()}</sub>`;
+          const readableDate = new Date().toLocaleString('en-US', {
+            timeZone: 'UTC',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          }) + ' UTC';
 
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-          });
+          body += `\n<sub>Last updated ${readableDate} · [todo-tree](https://github.com/alexandretrotel/todo-tree)</sub>`;
+          body += `\n${marker}`;
 
-          const botComment = comments.find(c =>
-            c.body.includes(header) && c.user.type === 'Bot'
-          );
+          const updateComment = '${{ inputs.update-comment }}' === 'true';
 
-          if (botComment) {
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: botComment.id,
-              body
-            });
-            console.log('Updated existing comment');
-          } else {
-            await github.rest.issues.createComment({
+          if (updateComment) {
+            const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body
             });
-            console.log('Created new comment');
+            const existing = comments.data.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+              console.log('Updated existing comment');
+              return;
+            }
           }
+
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body
+          });
+          console.log('Created new comment');
